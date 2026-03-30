@@ -9,4 +9,4 @@ node_modules/
 lorum ipsum
 HK_Junctions with Red Light Camera System installed.csv
 HK_Locations of Speed Enforcement Camera housing.csv
-maps/
+maps/*.mbtiles

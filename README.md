@@ -1,4 +1,16 @@
-# GPS Location Streaming Setup
+# Map Server
+
+Offline GPS navigation system that uses your phone as a GPS source and displays on your laptop's bigger screen. Perfect for family trips or areas without internet.
+
+## Prerequisites
+
+1. **Download Traccar** (v6.12.2 or later)
+   - Get it from https://github.com/traccar/traccar/releases
+   - Extract to `traccar-other-6.12.2/` in this directory
+
+2. **Download offline maps** (.mbtiles format)
+   - Place map files in the `maps/` folder
+   - Get maps from sources like OpenMapTiles or Protomaps
 
 ## Quick Start
 
