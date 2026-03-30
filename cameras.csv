@@ -1,0 +1,6 @@
+# Sample UK Speed Cameras CSV
+# Download real data from speedcams.world or scdb.info
+# Format: lat,lon,limit,type
+51.5074,-0.1278,30,fixed
+51.5145,-0.1270,40,mobile
+51.5200,-0.1300,50,average

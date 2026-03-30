@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Offline GPS Tracker</title>
+    <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
+    <style>
+        body { margin: 0; font-family: sans-serif; }
+        #map { height: calc(100vh - 60px); }
+        #info {
+            height: 60px; padding: 10px; background: #2c3e50; color: #fff;
+            display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
+        }
+        .stat { font-size: 14px; }
+        select, input, button {
+            padding: 5px 10px; font-size: 14px; background: #34495e;
+            color: #fff; border: none; border-radius: 3px; cursor: pointer;
+        }
+        button:hover { background: #4a6278; }
+        input { width: 150px; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div class="stat">
+            Device: <select id="deviceSelect"><option value="all">All</option></select>
+            <button onclick="loadDevices()" style="margin-left:5px;">↻</button>
+        </div>
+        <div class="stat"><input id="search" placeholder="Search location..." /></div>
+        <div class="stat"><button onclick="searchPlace()">Search</button></div>
+        <div class="stat"><button onclick="centerDevice()">Center Device</button></div>
+        <div class="stat">Speed: <span id="speed">--</span> km/h</div>
+        <div class="stat">Updated: <span id="time">--</span></div>
+    </div>
+    <div id="map"></div>
+    <script src="config.js"></script>
+    <script>
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: 'http://localhost:8080/styles/basic-preview/style.json',
+            center: [114.2, 22.3],
+            zoom: 11,
+            touchZoomRotate: true,
+            touchPitch: true
+        });
+
+        map.addControl(new maplibregl.NavigationControl());
+
+        const markers = {}, trails = {};
+        let devices = [];
+
+        async function login() {
+            const res = await fetch(TRACCAR_CONFIG.url + '/api/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `email=${TRACCAR_CONFIG.email}&password=${TRACCAR_CONFIG.password}`,
+                credentials: 'include'
+            });
+            return res.ok;
+        }
+
+        async function loadDevices() {
+            try {
+                console.log('Loading devices from:', TRACCAR_CONFIG.url);
+                const res = await fetch(TRACCAR_CONFIG.url + '/api/devices', {
+                    credentials: 'include',
+                    headers: { 'Accept': 'application/json' }
+                });
+                console.log('Response status:', res.status);
+                devices = await res.json();
+                console.log('Devices loaded:', devices);
+
+                const sel = document.getElementById('deviceSelect');
+                // Clear existing options except "All"
+                sel.innerHTML = '<option value="all">All</option>';
+
+                devices.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.id;
+                    opt.textContent = d.name;
+                    sel.appendChild(opt);
+                });
+                console.log('Device list updated');
+            } catch (e) {
+                console.error('Failed to load devices:', e);
+                alert('Failed to load devices. Check console for details.');
+            }
+        }
+
+        async function updatePositions() {
+            const res = await fetch(TRACCAR_CONFIG.url + '/api/positions', {
+                credentials: 'include',
+                headers: { 'Accept': 'application/json' }
+            });
+            const positions = await res.json();
+            const sel = document.getElementById('deviceSelect').value;
+
+            positions.forEach(p => {
+                if (sel !== 'all' && p.deviceId != sel) return;
+                const lon = p.longitude, lat = p.latitude;
+
+                if (!markers[p.deviceId]) {
+                    const dev = devices.find(d => d.id == p.deviceId);
+                    const el = document.createElement('div');
+                    el.className = 'marker';
+                    el.style.backgroundColor = '#3b82f6';
+                    el.style.width = '20px';
+                    el.style.height = '20px';
+                    el.style.borderRadius = '50%';
+                    el.style.border = '2px solid white';
+
+                    markers[p.deviceId] = new maplibregl.Marker(el)
+                        .setLngLat([lon, lat])
+                        .setPopup(new maplibregl.Popup().setText(dev?.name || p.deviceId))
+                        .addTo(map);
+                    trails[p.deviceId] = [];
+                } else {
+                    markers[p.deviceId].setLngLat([lon, lat]);
+                }
+
+                if (sel == p.deviceId) {
+                    map.flyTo({center: [lon, lat], zoom: 15});
+                    document.getElementById('speed').textContent = Math.round(p.speed * 1.852) || 0;
+                    document.getElementById('time').textContent = new Date(p.deviceTime).toLocaleTimeString();
+                }
+            });
+        }
+
+        function centerDevice() {
+            const sel = document.getElementById('deviceSelect').value;
+            if (sel !== 'all' && markers[sel]) {
+                const lngLat = markers[sel].getLngLat();
+                map.flyTo({center: [lngLat.lng, lngLat.lat], zoom: 15});
+            }
+        }
+
+        async function searchPlace() {
+            const query = document.getElementById('search').value;
+            if (!query) return;
+
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+            const results = await res.json();
+
+            if (results.length > 0) {
+                const lat = parseFloat(results[0].lat);
+                const lon = parseFloat(results[0].lon);
+                map.setView([lat, lon], 15);
+                L.marker([lat, lon]).addTo(map).bindPopup(results[0].display_name).openPopup();
+            }
+        }
+
+        document.getElementById('search').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const sel = document.getElementById('deviceSelect');
+            Array.from(sel.options).forEach(opt => {
+                opt.style.display = opt.text.toLowerCase().includes(term) ? '' : 'none';
+            });
+        });
+
+        (async () => {
+            await login();
+            await loadDevices();
+            setInterval(updatePositions, 2000);
+        })();
+    </script>
+</body>
+</html>

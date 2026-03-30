@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Offline GPS Tracker</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { margin: 0; font-family: sans-serif; }
+        #map { height: calc(100vh - 50px); }
+        #info {
+            height: 50px;
+            padding: 10px;
+            background: #333;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .stat { font-size: 16px; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div class="stat">
+            Device: <select id="deviceSelect" style="padding:5px;font-size:14px;">
+                <option value="all">All Devices</option>
+            </select>
+        </div>
+        <div class="stat">Speed: <span id="speed">--</span> km/h</div>
+        <div class="stat">Last update: <span id="time">--</span></div>
+    </div>
+    <div id="map"></div>
+
+    <script>
+        // Initialize map with offline tiles
+        const map = L.map('map').setView([22.3, 114.2], 11);
+
+        // Use local tile server
+        L.tileLayer('http://localhost:8080/styles/basic-preview/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+            attribution: 'OpenStreetMap'
+        }).addTo(map);
+
+        let marker, trail = [];
+        const trailLine = L.polyline([], {color: 'blue', weight: 3}).addTo(map);
+        const markers = {};
+        const trails = {};
+        let devices = [];
+
+        // Load devices
+        async function loadDevices() {
+            try {
+                const res = await fetch('http://localhost:8082/api/devices', {
+                    headers: { 'Authorization': 'Basic ' + btoa('admin:admin') }
+                });
+                devices = await res.json();
+
+                const select = document.getElementById('deviceSelect');
+                devices.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.id;
+                    opt.textContent = d.name;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('Error loading devices:', e);
+            }
+        }
+
+        // Fetch position from Traccar API
+        async function updatePosition() {
+            try {
+                const res = await fetch('http://localhost:8082/api/positions', {
+                    headers: { 'Authorization': 'Basic ' + btoa('admin:admin') }
+                });
+                const positions = await res.json();
+                const selectedId = document.getElementById('deviceSelect').value;
+
+                positions.forEach(pos => {
+                    const deviceId = pos.deviceId;
+                    if (selectedId !== 'all' && deviceId != selectedId) return;
+
+                    const lat = pos.latitude;
+                    const lon = pos.longitude;
+
+                    if (!markers[deviceId]) {
+                        markers[deviceId] = L.marker([lat, lon]).addTo(map).bindPopup(devices.find(d => d.id == deviceId)?.name || deviceId);
+                        trails[deviceId] = [];
+                    } else {
+                        markers[deviceId].setLatLng([lat, lon]);
+                    }
+
+                    trails[deviceId].push([lat, lon]);
+                    if (trails[deviceId].length > 100) trails[deviceId].shift();
+
+                    if (selectedId == deviceId || selectedId == 'all') {
+                        map.setView([lat, lon], 15);
+                        document.getElementById('speed').textContent = Math.round(pos.speed * 1.852) || 0;
+                        document.getElementById('time').textContent = new Date(pos.deviceTime).toLocaleTimeString();
+                    }
+                });
+            } catch (e) {
+                console.error('Error:', e);
+            }
+        }
+
+        loadDevices();
+        setInterval(updatePosition, 2000);
+        updatePosition();
+    </script>
+</body>
+</html>
